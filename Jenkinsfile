@@ -1,60 +1,64 @@
 pipeline {
     agent any
+    tools {
+        maven "MAVEN"
+    }
+    environment {
+        NEXUS_VERSION = "nexus3"
+        NEXUS_PROTOCOL = "http"
+        NEXUS_URL = "localhost:8081"
+        NEXUS_REPOSITORY = "maven-repo"
+        NEXUS_CREDENTIAL_ID = "Nexus_Jen"
+    }
     stages {
-        stage('Welcome') { 
-            steps { 
-               echo 'This is a DevSecOps pipeline created by AWSTechGuide' 
+        stage("Clone code from GitHub") {
+            steps {
+                script {
+                    git  url: 'https://github.com/NISHIKARANA/spring-webapp.git';
+                }
             }
         }
-        stage('Pull Sources') {
+        stage("Maven Build") {
             steps {
-             git url: 'https://github.com/awstechguide/spring-webapp.git'
-            }
-         }
-        
-        stage('Check-Git-Secrets') {
-            steps {
-             sh 'rm trufflehog* || true'
-             sh 'docker pull gesellix/trufflehog'
-	     sh 'docker run -t gesellix/trufflehog --json https://github.com/awstechguide/spring-webapp.git > trufflehog'
-	     sh 'cat trufflehog'
-            }
-         }
-        
-/*	    
-        stage('SCA') {
-            steps {
-                echo 'Initiating  Source Composition Analysis by OWASP' 
-                sh 'rm owasp* || true'
-                sh 'wget "https://raw.githubusercontent.com/awstechguide/spring-webapp/master/owasp-dependency-checker.sh"'
-                sh 'chmod +x owasp-dependency-checker.sh'
-                sh 'bash owasp-dependency-checker.sh'
-                sh 'cat /var/lib/jenkins/OWASP-Dependency-Check/reports/dependency-check-report.xml'
+                script {
+                    bat "mvn package -DskipTests=true"
+                }
             }
         }
-	    */
-        stage('Build') {
+        stage("Publish to Nexus Repository Manager") {
             steps {
-                sh 'mvn clean install'
+                script {
+                    pom = readMavenPom file: "pom.xml";
+                    filesByGlob = findFiles(glob: "target/*.${pom.packaging}");
+                    echo "${filesByGlob[0].name} ${filesByGlob[0].path} ${filesByGlob[0].directory} ${filesByGlob[0].length} ${filesByGlob[0].lastModified}"
+                    artifactPath = filesByGlob[0].path;
+                    artifactExists = fileExists artifactPath;
+                    if(artifactExists) {
+                        echo "*** File: ${artifactPath}, group: ${pom.groupId}, packaging: ${pom.packaging}, version ${pom.version}";
+                        nexusArtifactUploader(
+                            nexusVersion: NEXUS_VERSION,
+                            protocol: NEXUS_PROTOCOL,
+                            nexusUrl: NEXUS_URL,
+                            groupId: pom.groupId,
+                            version: pom.version,
+                            repository: NEXUS_REPOSITORY,
+                            credentialsId: NEXUS_CREDENTIAL_ID,
+                            artifacts: [
+                                [artifactId: pom.artifactId,
+                                classifier: '',
+                                file: artifactPath,
+                                type: pom.packaging],
+                                [artifactId: pom.artifactId,
+                                classifier: '',
+                                file: "pom.xml",
+                                type: "pom"]
+                            ]
+                        );
+                    } else {
+                        error "*** File: ${artifactPath}, could not be found";
+                    }
+                }
             }
         }
-
-	    
-	stage ('Deploy') {
-          steps {
-	sshagent(['deployuser']) {
-	    sh "scp -o StrictHostKeyChecking=no target/webapptest.war ubuntu@54.92.220.219:/usr/local/tomcat/webapps/webapptest.war"
-	    }
-	  }
-	}
-        
-    stage ('DAST') {
-      steps {
-        sshagent(['zap']) {
-         sh 'ssh -o  StrictHostKeyChecking=no ubuntu@34.237.72.210 "docker run -t owasp/zap2docker-stable zap-baseline.py -t http://54.92.220.219:8080/webapptest/home" || true'
-        }
-      }
-    }    	    
-	    
     }
 }
