@@ -25,6 +25,20 @@ pipeline {
                 }
             }
         }
+              stage('Sonarqube Analysis - SAST') {
+            steps {
+                  withSonarQubeEnv('Sonar') {
+           bat "mvn sonar:sonar \
+                              -Dsonar.projectKey=demo_project \
+                        -Dsonar.host.url=http://Localhost:9000" 
+                }
+           timeout(time: 2, unit: 'MINUTES') {
+                      script {
+                        waitForQualityGate abortPipeline: true
+                    }
+                }
+              }
+        }
         stage("Publish to Nexus Repository Manager") {
             steps {
                 script {
